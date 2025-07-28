@@ -12,6 +12,11 @@ from scene_graph.msg import DetectedObjects, DetectedObject
 from geometry_msgs.msg import Point32
 from std_msgs.msg import String
 from nav_msgs.msg import Odometry
+#import collections # Igor
+from std_msgs.msg import Int32
+from collections import deque
+from collections import Counter
+import os
 
 #!/usr/bin/env python
 
@@ -56,7 +61,55 @@ class YOLOv9SegNode:
         
         self.detected_objects_pub = rospy.Publisher('/scene_graph/detected_objects', DetectedObjects, queue_size=10)
         
-        
+        #self.object_info = collections.defaultdict(list) # Igor: Store images for each detected object class
+        # Images TODO: relative path
+        os.makedirs('/root/catkin_ws/src/scene_graph_room_classification/images/detected_objects', exist_ok=True)
+        self.image_index = 0
+        self.image_path = '/root/catkin_ws/src/scene_graph_room_classification/images/detected_objects/'
+        self.last_class_name = ''
+        self.last_save_time = 0
+        self.same_class_count = 0
+
+        self.image_queue_size = 20
+        self.image_queue_saved_size = 10
+        self.image_queue = deque(maxlen=self.image_queue_size)
+        self.image_queue_saved = deque(maxlen=self.image_queue_saved_size)
+        self.queue_saved_empty = True
+        self.comparison_time_range = 8.0 # seconds for image comparison with the last saved image
+
+        # Performance optimization (Odom only if environment is static)
+        self.pause_for_seconds = 0.1
+        self.last_odom_position = None
+        self.last_odom_orientation = None
+        self.position_threshold = 0.05  # meters
+        self.orientation_threshold = 0.05  # radians
+
+    #Igor:Check for Odom position and orientation changes
+    def has_significant_odom_change(self, current_odom):
+        # Compare position
+        pos = current_odom.pose.pose.position
+        if self.last_odom_position is not None:
+            dx = pos.x - self.last_odom_position.x
+            dy = pos.y - self.last_odom_position.y
+            dz = pos.z - self.last_odom_position.z
+            position_change = (dx**2 + dy**2 + dz**2) ** 0.5
+        else:
+            position_change = float('inf')
+
+        # Compare orientation (quaternion difference)
+        ori = current_odom.pose.pose.orientation
+        if self.last_odom_orientation is not None:
+            # Compute the angle between quaternions
+            import numpy as np
+            q1 = np.array([ori.x, ori.y, ori.z, ori.w])
+            q0 = np.array([self.last_odom_orientation.x, self.last_odom_orientation.y, self.last_odom_orientation.z, self.last_odom_orientation.w])
+            dot = np.clip(np.dot(q0, q1), -1.0, 1.0)
+            angle = 2 * np.arccos(abs(dot))
+        else:
+            angle = float('inf')
+
+        return position_change > self.position_threshold or angle > self.orientation_threshold
+
     def synchronized_callback(self, ros_image, depth_msg, odom_msg):
         # Convert ROS Image message to OpenCV format
         
@@ -68,13 +121,20 @@ class YOLOv9SegNode:
         # if not self.n % 10 == 0:
         #     return
         
-
-        
         
         print('in synchronized callback')
         
         start_time = time.time()
-        
+
+        # Igor: Lessen amount of images processed TODO: Try image comparison instead // Check Synchronization
+        """
+        if ((start_time - self.last_save_time) < self.pause_for_seconds): #Time between processing images
+            return
+        elif not self.has_significant_odom_change(odom_msg): # Check for Odom position and orientation changes (Only if environment is static))
+            return
+        """
+
+
         try:
             cv_image = self.bridge.imgmsg_to_cv2(ros_image, desired_encoding='bgr8')
         except CvBridgeError as e:
@@ -94,6 +154,12 @@ class YOLOv9SegNode:
 
         detected_objects = []
         indices = []
+        #igor:
+        object_detected = False
+        image_path_combination = ''
+        object_array_for_queue = []
+        object_class_names_array = []
+        
                         
         for result in results:
             for i, box in enumerate(result.boxes):
@@ -101,14 +167,49 @@ class YOLOv9SegNode:
                 class_name = result.names[class_id]
                 confidence = box.conf.item()
                 
+
                 if confidence > 0.6:
                     x1, y1, x2, y2 = box.xyxy[0][0].item(), box.xyxy[0][1].item(), box.xyxy[0][2].item(), box.xyxy[0][3].item()
                     print(f"Class: {class_name}, Confidence: {confidence}, Coordinates: ({x1}, {y1}), ({x2}, {y2})")
                     
-                    detected_objects.append(DetectedObject(String(str(class_name)), [Point32(x1, y1, 0.0), Point32(x2, y2, 0.0)], []))
-                    indices.append(i)
+                    #Igor
+                    if class_name in self.last_class_name:
+                        image_index = self.image_index
+                    else:
+                        image_index = self.image_index + 1
                     
-        
+                    detected_object = DetectedObject(String(str(class_name)), [Point32(x1, y1, 0.0), Point32(x2, y2, 0.0)], [], Int32(image_index))
+                    object_array_for_queue.append(detected_object)
+                    object_class_names_array.append(class_name)
+                    #self.image_queue.append(start_time, cv_image, DetectedObject(String(str(class_name)), [Point32(x1, y1, 0.0), Point32(x2, y2, 0.0)], [], image_index))
+                    ###
+
+                    detected_objects.append(DetectedObject(String(str(class_name)), [Point32(x1, y1, 0.0), Point32(x2, y2, 0.0)], [], Int32(image_index)))
+                    indices.append(i)
+
+                    #self.object_info[class_name].append(cv_image) # Store image // Igor
+                    
+                    image_path_combination += f'{class_name}_'
+                    object_detected = True
+        if len(self.image_queue) >= self.image_queue_size:
+            self.save_image()  # Save the image if the queue is full
+        if object_detected:
+            self.image_queue.append((start_time, cv_image, object_array_for_queue, object_class_names_array))  # Store the image with timestamp and class name
+        #Igor
+        """
+        if object_detected:
+            current_time = time.time()
+            if (self.last_class_name != image_path_combination) or (current_time - self.last_save_time > 3.0):
+                cv2.imwrite(f'{self.image_path}{image_path_combination}{self.image_index}.jpg', cv_image)
+                object_detected = False
+                self.last_class_name = image_path_combination
+                self.last_save_time = current_time
+                self.image_index += 1
+        """
+        self.last_odom_position = odom_msg.pose.pose.position
+        self.last_odom_orientation = odom_msg.pose.pose.orientation
+
+
         h2, w2, _ = results[0].orig_img.shape
         masks = None
 
@@ -177,11 +278,73 @@ class YOLOv9SegNode:
         self.odom_pub.publish(odom_msg)
         self.detected_objects_pub.publish(detected_objects_msg)
         
+    def save_image(self):
+        if not self.queue_saved_empty:
 
+            for entry in reversed(self.image_queue_saved):
+                last_saved_time, last_saved_class_names = entry
+                last_saved_counts = Counter(last_saved_class_names)
+                self.save_image_helper_saved(last_saved_time, last_saved_counts)
+
+        if len(self.image_queue) == 0:
+            return
+        start_time, cv_image, object_array, object_class_names_array = self.image_queue.popleft() #self.image_queue[0]
+        current_counts = Counter(object_class_names_array)
+        
+        for entry in reversed(self.image_queue):
+            if  entry[0] - start_time > self.comparison_time_range:
+                break
+            entry_object_class_names_array = entry[3]
+            entry_object_counts = Counter(entry_object_class_names_array)
+
+            # Check if the current image is equal or a subset of the entry image
+            if current_counts == entry_object_counts:
+                return  # Skip saving this image
+            for class_name in current_counts:
+                if class_name not in entry_object_counts or current_counts[class_name] > entry_object_counts[class_name]:
+                    continue
+        
+
+
+        # save the image
+        image_path_combination = ''
+        for detected_object_name in object_class_names_array:
+            image_path_combination += detected_object_name + '_'
+            
+        cv2.imwrite(f'{self.image_path}{image_path_combination}{self.image_index}.jpg', cv_image)
+        self.last_class_name = image_path_combination
+        self.last_save_time = start_time
+        self.image_index += 1
+        self.image_queue_saved.append((start_time, object_class_names_array))
+        self.queue_saved_empty = False
+        
+    def save_image_helper_saved(self, last_saved_time, last_saved_counts):    
+        while (len(self.image_queue) > 0):
+                start_time_ = self.image_queue[0][0]
+                object_class_names_array_ = self.image_queue[0][3]
+                current_counts = Counter(object_class_names_array_)
+                #print(f'last saved time: {last_saved_time}, start time: {start_time_}, current counts: {current_counts}, last saved counts: {last_saved_counts}')
+                if start_time_ - last_saved_time > self.comparison_time_range:
+                    return
+                # Check if the current image is equal or a subset of the last saved image
+                if current_counts == last_saved_counts:
+                    self.image_queue.popleft()
+                    continue
+                for class_name in current_counts:
+                    if class_name not in last_saved_counts or current_counts[class_name] > last_saved_counts[class_name]:
+                        return
+                
+                # If all classes are equal or a subset, skip saving this image
+                self.image_queue.popleft()
+                continue
 
     def run(self):
         # Keep the node running
         rospy.spin()
+    
+    #Igor
+    #def calculate_time_formula(self):
+
 
 if __name__ == '__main__':
     try:

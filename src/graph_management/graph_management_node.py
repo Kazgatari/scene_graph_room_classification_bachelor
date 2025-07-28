@@ -27,14 +27,15 @@ class RoomNode:
         self.center_point = center_point
 
 class ObjectNode:
-    def __init__(self, id, class_id, bounding_box) -> None:
+    def __init__(self, id, class_id, bounding_box, image_index, description) -> None:
         self.id = id
         self.class_id = class_id
         self.bounding_box = bounding_box
-        
+        self.image_index = image_index  # Igor
+        self.description = description  # Igor
 
 class GraphManagementNode:
-    
+
     def __init__(self) -> None:
         rospy.Subscriber('/scene_graph/seen_graph_objects', GraphObjects, self.seen_objects_callback)
         rospy.Subscriber('/scene_graph/rooms', RoomPolygonList, self.rooms_callback)
@@ -86,7 +87,7 @@ class GraphManagementNode:
             self.graph_lock = False
 
             nodes = list(self.scene_graph.nodes)
-
+            # Find room, extract objects in room and publish //Igor
             for node in nodes:
                 if node in self.scene_graph and 'data' in self.scene_graph.nodes[node]:
                     if type(self.scene_graph.nodes[node]['data']) is RoomNode:
@@ -113,7 +114,7 @@ class GraphManagementNode:
 
             self.graph_lock = True
             nodes = list(self.scene_graph.nodes)
-                
+            # Redo edges for objects and rooms ==> find adjacent Rooms //Igor    
             self.scene_graph.remove_edges_from(list(self.scene_graph.edges))
             for object_node in nodes:
                 if object_node in self.scene_graph and 'data' in self.scene_graph.nodes[object_node]:
@@ -139,7 +140,8 @@ class GraphManagementNode:
                             if type(self.scene_graph.nodes[room_node]['data']) is RoomNode and room_node != object_node:
                                 if self.has_adjacent_points(self.scene_graph.nodes[object_node]['data'].polygon, self.scene_graph.nodes[room_node]['data'].polygon):
                                     self.scene_graph.add_edge(room_node, object_node)
-                
+
+            # Identify unconnected objects and add edges to closest room //Igor    
             for object_node in list(self.scene_graph.nodes):
                 if object_node in self.scene_graph and 'data' in self.scene_graph.nodes[object_node]:
                     if type(self.scene_graph.nodes[object_node]['data']) is ObjectNode:     
@@ -205,7 +207,7 @@ class GraphManagementNode:
                 self.scene_graph.nodes[room[0]]['data'].class_id = msg.label.data
                 break
         
-        
+    # Check if object is in graph, if yes merge bounding boxes , if no add object to room
     def seen_objects_callback(self, msg):
         
         # to disable interrupting the constructor
@@ -221,14 +223,14 @@ class GraphManagementNode:
         
         changed_room_ids = []
         
-        for object in msg.objects:
+        for object in msg.objects: #
             
             in_graph = self.is_object_in_graph(object)
             
             if in_graph == -1:
-                
-                self.scene_graph.add_node(self.n, data=ObjectNode(self.n, object.name.data, object.bounding_box))
-                
+
+                self.scene_graph.add_node(self.n, data=ObjectNode(self.n, object.name.data, object.bounding_box, object.image_index, object.description.data)) #Igor
+
                 if not self.rooms_classified:
                     
                     # add to default room first
@@ -294,8 +296,8 @@ class GraphManagementNode:
         for node in nodes:
             if node in self.scene_graph and 'data' in self.scene_graph.nodes[node]:
                 if type(self.scene_graph.nodes[node]['data']) is ObjectNode:
-                    graph_objects.append(GraphObject(String(self.scene_graph.nodes[node]['data'].class_id), self.scene_graph.nodes[node]['data'].bounding_box))
-                
+                    graph_objects.append(GraphObject(String(self.scene_graph.nodes[node]['data'].class_id), self.scene_graph.nodes[node]['data'].bounding_box, Int32(self.scene_graph.nodes[node]['data'].image_index)))
+
         graph_objects_msg.objects = graph_objects
         
         self.objects_pub.publish(graph_objects_msg)

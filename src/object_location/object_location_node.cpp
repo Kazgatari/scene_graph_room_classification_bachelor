@@ -331,8 +331,9 @@ void synchronized_callback(const sensor_msgs::ImageConstPtr& image,
 
     int i = 0;
     for (const auto& detected_object : detected_objects->objects) {
-
-        std::cout << "detected object: " << detected_object.class_name << std::endl;
+        /*Igor*/
+        std::cout << "detected object: " << detected_object.class_name.data << " (" << detected_object.description.data << ")" << std::endl;
+        //std::cout << "detected object: " << detected_object.class_name << std::endl;
 
         std::vector<geometry_msgs::Point32> pointcloud_segment{};
 
@@ -343,10 +344,23 @@ void synchronized_callback(const sensor_msgs::ImageConstPtr& image,
 
         for (auto y = static_cast<int>(detected_object.bounding_box.at(0).y); y < static_cast<int>(detected_object.bounding_box.at(1).y); ++y) {
             for (auto x = static_cast<int>(detected_object.bounding_box.at(0).x); x < static_cast<int>(detected_object.bounding_box.at(1).x); ++x) {
+                /*Igor*/
+                if (x == static_cast<int>(detected_object.bounding_box.at(0).x) && 
+                    y == static_cast<int>(detected_object.bounding_box.at(0).y)) {
+                    std::cout << "Polygon has " << detected_object.segment.size() << " points:" << std::endl;
+                    for (const auto& point : detected_object.segment) {
+                        std::cout << "  (" << point.x << ", " << point.y << ")" << std::endl;
+                    }
+                    std::cout << "Bounding box: (" << detected_object.bounding_box.at(0).x << ", " 
+                              << detected_object.bounding_box.at(0).y << ") to (" 
+                              << detected_object.bounding_box.at(1).x << ", " 
+                              << detected_object.bounding_box.at(1).y << ")" << std::endl;
+                }
+                /*Igor*/
 
                 if (!isPointInPolygon(detected_object.segment, x, y))
                     continue;
-
+                
                 int array_position{static_cast<int>(y * image->width + x)};
 
                 sensor_msgs::PointCloud2ConstIterator<float> iter_x{cloud_out, "x"};
@@ -370,12 +384,14 @@ void synchronized_callback(const sensor_msgs::ImageConstPtr& image,
 
 
         if (pointcloud_segment.size() == 0)
+            std::cout << "No points found in the segment for object: " << detected_object.class_name.data << std::endl; //Igor
             continue;
 
         auto center_point{computeMedianPoint(pointcloud_segment)};
         auto filtered_pointcloud_segment{getNearestPoints(pointcloud_segment, center_point)};
 
         if (filtered_pointcloud_segment.size() == 0)
+            std::cout << "No points found in the filtered segment for object: " << detected_object.class_name.data << std::endl; //Igor
             continue;
 
         // for (auto& point : filtered_pointcloud_segment)
@@ -387,13 +403,16 @@ void synchronized_callback(const sensor_msgs::ImageConstPtr& image,
         graph_object.name = detected_object.class_name;
         graph_object.bounding_box.push_back(bounding_box.first);
         graph_object.bounding_box.push_back(bounding_box.second);
+        graph_object.image_index = detected_object.image_index; //Igor
+        graph_object.description = detected_object.description; //Igor
 
         graph_objects.objects.push_back(graph_object);
+        std::cout << "Added graph object: " << graph_object.description.data << std::endl; //Igor
 
         ++i;
     }
 
-
+    std::cout << "Total number of graph objects: " << i << std::endl; //Igor
     graph_objects_pub.publish(graph_objects);
 
     // // LOG
