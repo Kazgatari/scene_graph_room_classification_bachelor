@@ -1,0 +1,3 @@
+string name
+ObjectAttribute attributes
+string relationship_to_main

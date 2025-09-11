@@ -1,9 +1,10 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 
 import rospy
 import networkx as nx
 import numpy as np
 import math
+import json
 from scene_graph.msg import GraphObject, GraphObjects, ClassifiedRoom, RoomPolygonList, RoomWithObjects
 from visualization_msgs.msg import Marker, MarkerArray
 from geometry_msgs.msg import Point32
@@ -27,12 +28,13 @@ class RoomNode:
         self.center_point = center_point
 
 class ObjectNode:
-    def __init__(self, id, class_id, bounding_box, image_index, description) -> None:
+    def __init__(self, id, class_id, bounding_box, object_name=None) -> None:
         self.id = id
         self.class_id = class_id
         self.bounding_box = bounding_box
-        self.image_index = image_index  # Igor
-        self.description = description  # Igor
+        self.object_name = object_name if object_name else class_id
+        #self.image_index = image_index  # Igor
+        #self.description = description  # Igor
 
 class GraphManagementNode:
 
@@ -41,6 +43,7 @@ class GraphManagementNode:
         rospy.Subscriber('/scene_graph/rooms', RoomPolygonList, self.rooms_callback)
         rospy.Subscriber('/scene_graph/classified_room', ClassifiedRoom, self.classified_room_callback)
         rospy.Subscriber('/scene_graph/control', Bool, self.control_callback)
+        rospy.Subscriber('/scene_graph/object_relationships', String, self.relationships_callback)
         
         self.objects_pub = rospy.Publisher('scene_graph/graph_objects', GraphObjects, queue_size=10)
         self.room_with_objects_pub = rospy.Publisher('/scene/graph/room_with_objects', RoomWithObjects, queue_size=10)
@@ -52,6 +55,7 @@ class GraphManagementNode:
         self.building_markers_pub = rospy.Publisher('/scene_graph/viz/building_markers', MarkerArray, queue_size=10)
         self.line_markers_pub = rospy.Publisher('/scene_graph/viz/line_markers', MarkerArray, queue_size=10)
         self.text_markers_pub = rospy.Publisher('/scene_graph/viz/text_markers', MarkerArray, queue_size=10)
+        self.relationship_markers_pub = rospy.Publisher('/scene_graph/viz/relationship_markers', MarkerArray, queue_size=10)
         
         self.scene_graph = nx.Graph()
         
@@ -77,6 +81,13 @@ class GraphManagementNode:
         self.overlapping_threshold = 0.8
         
         self.old_marker_ids = []
+        
+        # Object relationships from spatial tracker
+        self.object_relationships = {}  # object_id -> {related_object_id: relationship_description}
+        
+        # Mapping from spatial tracker object IDs to graph node IDs
+        self.spatial_to_graph_id_map = {}  # spatial_object_id -> graph_node_id
+        self.graph_to_spatial_id_map = {}  # graph_node_id -> spatial_object_id
 
 
     def run_main_loop(self):
@@ -197,6 +208,160 @@ class GraphManagementNode:
             
             self.rooms_segmented = False
             self.rooms = [[1, 999]]
+            
+            # Clear relationship mappings
+            self.object_relationships.clear()
+            self.spatial_to_graph_id_map.clear()
+            self.graph_to_spatial_id_map.clear()
+    
+    def relationships_callback(self, msg):
+        """Handle object relationships from spatial tracker"""
+        try:
+            # Parse JSON string containing relationships
+            relationships_data = json.loads(msg.data)
+            self.object_relationships = relationships_data
+            
+            rospy.loginfo(f"Received relationships for {len(relationships_data)} objects")
+            rospy.logdebug(f"Relationships: {relationships_data}")
+            
+        except json.JSONDecodeError as e:
+            rospy.logerr(f"Failed to parse relationships JSON: {e}")
+        except Exception as e:
+            rospy.logerr(f"Error processing relationships: {e}")
+    
+    def get_object_id_from_name(self, object_name):
+        """Find graph node ID from object name (for cases where we don't have spatial ID mapping)"""
+        nodes = list(self.scene_graph.nodes)
+        for node_id in nodes:
+            node_data = self.scene_graph.nodes[node_id].get('data')
+            if isinstance(node_data, ObjectNode):
+                if node_data.object_name == object_name or node_data.class_id == object_name:
+                    return node_id
+        return None
+    
+    def update_relationship_edges(self):
+        """Add edges between objects based on relationship data from spatial tracker"""
+        if not self.object_relationships:
+            return
+        
+        relationship_edges_added = 0
+        
+        for spatial_obj_id_str, relationships in self.object_relationships.items():
+            try:
+                spatial_obj_id = int(spatial_obj_id_str)
+                
+                # Get graph node ID for this spatial object
+                source_graph_id = self.spatial_to_graph_id_map.get(spatial_obj_id)
+                if not source_graph_id:
+                    continue
+                
+                # Add edges to related objects
+                for related_spatial_id_str, relationship_desc in relationships.items():
+                    try:
+                        related_spatial_id = int(related_spatial_id_str)
+                        target_graph_id = self.spatial_to_graph_id_map.get(related_spatial_id)
+                        
+                        if target_graph_id:
+                            # Add edge with relationship data as attribute
+                            if not self.scene_graph.has_edge(source_graph_id, target_graph_id):
+                                self.scene_graph.add_edge(source_graph_id, target_graph_id, 
+                                                        relationship=relationship_desc,
+                                                        edge_type='object_relationship')
+                                relationship_edges_added += 1
+                                rospy.logdebug(f"Added relationship edge: {source_graph_id} -> {target_graph_id} ({relationship_desc})")
+                    except ValueError:
+                        continue
+                        
+            except ValueError:
+                continue
+        
+        if relationship_edges_added > 0:
+            rospy.loginfo(f"Added {relationship_edges_added} relationship edges to scene graph")
+    
+    def create_relationship_marker(self, point1, point2, relationship_desc, marker_id):
+        """Create a line marker to visualize object relationships"""
+        # Create line from object centers
+        center1 = self.calculate_bounding_box_center([point1[0], point1[1]])
+        center2 = self.calculate_bounding_box_center([point2[0], point2[1]])
+        
+        line_marker = Marker()
+        line_marker.header.frame_id = "map"
+        line_marker.header.stamp = rospy.Time.now()
+        line_marker.ns = "relationships"
+        line_marker.id = marker_id
+        line_marker.type = Marker.LINE_STRIP
+        line_marker.action = Marker.ADD
+        line_marker.scale.x = 0.08  # Thicker line for relationships
+        line_marker.lifetime = rospy.Duration(0.6)
+
+        # Color based on relationship type
+        if "part" in relationship_desc.lower():
+            # Blue for part relationships
+            line_marker.color.r = 0.0
+            line_marker.color.g = 0.4
+            line_marker.color.b = 1.0
+        elif "nearby" in relationship_desc.lower() or "spatial" in relationship_desc.lower():
+            # Green for spatial relationships
+            line_marker.color.r = 0.0
+            line_marker.color.g = 1.0
+            line_marker.color.b = 0.0
+        else:
+            # Orange for other relationships
+            line_marker.color.r = 1.0
+            line_marker.color.g = 0.5
+            line_marker.color.b = 0.0
+        
+        line_marker.color.a = 0.8
+        
+        line_marker.pose.orientation.x = 0.0
+        line_marker.pose.orientation.y = 0.0
+        line_marker.pose.orientation.z = 0.0
+        line_marker.pose.orientation.w = 1.0
+
+        # Add points at slightly elevated Z to avoid ground collision
+        z_offset = 0.5
+        point1_3d = Point32(center1.x, center1.y, center1.z + z_offset)
+        point2_3d = Point32(center2.x, center2.y, center2.z + z_offset)
+        
+        line_marker.points.append(point1_3d)
+        line_marker.points.append(point2_3d)
+        
+        return line_marker
+    
+    def create_relationship_text_marker(self, point1, point2, relationship_desc, marker_id):
+        """Create a text marker to show relationship description"""
+        # Position text at midpoint between objects
+        center1 = self.calculate_bounding_box_center([point1[0], point1[1]])
+        center2 = self.calculate_bounding_box_center([point2[0], point2[1]])
+        
+        mid_x = (center1.x + center2.x) / 2.0
+        mid_y = (center1.y + center2.y) / 2.0
+        mid_z = (center1.z + center2.z) / 2.0 + 1.0  # Elevated text
+        
+        text_marker = Marker()
+        text_marker.header.frame_id = "map"
+        text_marker.header.stamp = rospy.Time.now()
+        text_marker.ns = "relationship_labels"
+        text_marker.id = marker_id
+        text_marker.type = Marker.TEXT_VIEW_FACING
+        text_marker.action = Marker.ADD
+        text_marker.lifetime = rospy.Duration(0.6)
+        text_marker.pose.position = Point32(mid_x, mid_y, mid_z)
+        text_marker.scale.z = 0.3  # Smaller text for relationships
+
+        text_marker.pose.orientation.x = 0.0
+        text_marker.pose.orientation.y = 0.0
+        text_marker.pose.orientation.z = 0.0
+        text_marker.pose.orientation.w = 1.0
+
+        text_marker.color.r = 1.0
+        text_marker.color.g = 1.0
+        text_marker.color.b = 1.0
+        text_marker.color.a = 0.9
+
+        text_marker.text = relationship_desc
+        
+        return text_marker
     
     
     def classified_room_callback(self, msg):
@@ -225,11 +390,18 @@ class GraphManagementNode:
         
         for object in msg.objects: #
             
+            # Extract spatial object ID from the GraphObject
+            spatial_object_id = object.object_id.data
+            
             in_graph = self.is_object_in_graph(object)
             
             if in_graph == -1:
 
-                self.scene_graph.add_node(self.n, data=ObjectNode(self.n, object.name.data, object.bounding_box, object.image_index, object.description.data)) #Igor
+                self.scene_graph.add_node(self.n, data=ObjectNode(self.n, object.name.data, object.bounding_box, object.name.data))
+                
+                # Map spatial object ID to graph node ID
+                self.spatial_to_graph_id_map[spatial_object_id] = self.n
+                self.graph_to_spatial_id_map[self.n] = spatial_object_id
 
                 if not self.rooms_classified:
                     
@@ -249,11 +421,18 @@ class GraphManagementNode:
                 self.n += 1   
                 
             else:
+                # Update spatial object ID mapping for existing object
+                self.spatial_to_graph_id_map[spatial_object_id] = in_graph
+                self.graph_to_spatial_id_map[in_graph] = spatial_object_id
+                
                 merged_box = self.merge_bounding_boxes(self.scene_graph.nodes[in_graph]['data'].bounding_box[0], self.scene_graph.nodes[in_graph]['data'].bounding_box[1],
                                           object.bounding_box[0], object.bounding_box[1])
                 
                 self.scene_graph.nodes[in_graph]['data'].bounding_box[0] = merged_box[0]
                 self.scene_graph.nodes[in_graph]['data'].bounding_box[1] = merged_box[1]
+        
+        # Process object relationships after all objects are added/updated
+        self.update_relationship_edges()
 
         rospy.loginfo(f'[NODES]: {len(self.scene_graph.nodes)}')
         rospy.loginfo(f'[TIMIMG]: {time.time() - start_time}')
@@ -296,7 +475,9 @@ class GraphManagementNode:
         for node in nodes:
             if node in self.scene_graph and 'data' in self.scene_graph.nodes[node]:
                 if type(self.scene_graph.nodes[node]['data']) is ObjectNode:
-                    graph_objects.append(GraphObject(String(self.scene_graph.nodes[node]['data'].class_id), self.scene_graph.nodes[node]['data'].bounding_box, Int32(self.scene_graph.nodes[node]['data'].image_index)))
+                    # Get spatial tracker object ID if available, otherwise use graph node ID
+                    spatial_obj_id = self.graph_to_spatial_id_map.get(node, node)
+                    graph_objects.append(GraphObject(String(self.scene_graph.nodes[node]['data'].class_id), Int32(spatial_obj_id), self.scene_graph.nodes[node]['data'].bounding_box))#, Int32(self.scene_graph.nodes[node]['data'].image_index))) #Igor
 
         graph_objects_msg.objects = graph_objects
         
@@ -418,10 +599,59 @@ class GraphManagementNode:
         self.line_markers_pub.publish(line_marker_array)
         self.text_markers_pub.publish(text_marker_array)
         
+        # Publish relationship markers
+        self.publish_relationship_markers()
+        
         # save graph in file
         # pickle.dump(self.scene_graph, open('/home/nes/catkin_ws/src/scene_graph/src/graph_creation/scene_graph.pickle', 'wb'))
         
         # self.graph_lock = False
+    
+    def publish_relationship_markers(self):
+        """Publish visualization markers for object relationships"""
+        relationship_marker_array = MarkerArray()
+        relationship_text_array = MarkerArray()
+        
+        marker_id = 0
+        
+        # Get all edges that represent object relationships
+        for edge in self.scene_graph.edges(data=True):
+            source_node, target_node, edge_data = edge
+            
+            # Only process relationship edges between objects
+            if edge_data.get('edge_type') == 'object_relationship':
+                source_data = self.scene_graph.nodes[source_node].get('data')
+                target_data = self.scene_graph.nodes[target_node].get('data')
+                
+                # Make sure both are object nodes (not room or building nodes)
+                if (isinstance(source_data, ObjectNode) and isinstance(target_data, ObjectNode)):
+                    relationship_desc = edge_data.get('relationship', 'related')
+                    
+                    # Create line marker for relationship
+                    line_marker = self.create_relationship_marker(
+                        source_data.bounding_box, target_data.bounding_box, 
+                        relationship_desc, marker_id
+                    )
+                    relationship_marker_array.markers.append(line_marker)
+                    
+                    # Create text marker for relationship description
+                    text_marker = self.create_relationship_text_marker(
+                        source_data.bounding_box, target_data.bounding_box,
+                        relationship_desc, marker_id + 1000  # Offset for text markers
+                    )
+                    relationship_text_array.markers.append(text_marker)
+                    
+                    marker_id += 1
+        
+        # Publish the relationship markers
+        self.relationship_markers_pub.publish(relationship_marker_array)
+        
+        # Also add relationship texts to the main text marker publisher
+        for text_marker in relationship_text_array.markers:
+            text_marker.ns = "relationship_texts"
+        self.text_markers_pub.publish(relationship_text_array)
+        
+        rospy.logdebug(f"Published {len(relationship_marker_array.markers)} relationship markers")
                
         
     def merge_bounding_boxes(self, min1, max1, min2, max2):

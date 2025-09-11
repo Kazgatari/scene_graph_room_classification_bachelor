@@ -1,0 +1,5 @@
+geometry_msgs/Point center
+float64 radius
+string label_filter
+---
+string[] object_ids

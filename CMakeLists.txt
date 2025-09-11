@@ -91,11 +91,22 @@ add_message_files(
   ClassifiedRoom.msg
   ClassifiedRooms.msg
   RoomWithObjects.msg
+  ObjectDescription.msg
+  ObjectDescriptions.msg
+  ObjectAttribute.msg
+  ObjectInfo.msg
+  ObjectPart.msg
+  ObjectSpatialContext.msg
+  ObjectSceneGraph.msg
+
 )
 ## Generate services in the 'srv' folder
 add_service_files(
   FILES
   Florence2.srv
+  RegisterObject.srv
+  QueryObjects.srv
+  GetObjectInfo.srv
 )
 
 ## Generate actions in the 'action' folder

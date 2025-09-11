@@ -1,0 +1,5 @@
+scene_graph/DetectedObject object
+---
+bool success
+string object_id
+string message
