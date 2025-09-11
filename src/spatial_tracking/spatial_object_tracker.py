@@ -528,7 +528,8 @@ class SpatialObjectTracker:
                     'name': msg.main_object.name,
                     'attributes': {
                         'color': msg.main_object.attributes.color,
-                        'material': msg.main_object.attributes.material,
+                        # 'material' removed from ObjectAttribute; keep key out or default empty
+                        # 'material': msg.main_object.attributes.material,
                         'style': msg.main_object.attributes.style
                     }
                 },
@@ -537,7 +538,7 @@ class SpatialObjectTracker:
                         'name': part.name,
                         'attributes': {
                             'color': part.attributes.color,
-                            'material': part.attributes.material,
+                            # 'material': part.attributes.material,
                             'style': part.attributes.style
                         },
                         'relationship_to_main': part.relationship_to_main
@@ -549,7 +550,7 @@ class SpatialObjectTracker:
                         'name': env.name,
                         'attributes': {
                             'color': env.attributes.color,
-                            'material': env.attributes.material,
+                            # 'material': env.attributes.material,
                             'style': env.attributes.style
                         }
                     }

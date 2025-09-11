@@ -178,7 +178,7 @@ Output format must be valid JSON with this exact structure:
     "name": "object_name",
     "attributes": {
       "color": "color_value",
-      "material": "material_value",
+      
       "style": "style_value"
     }
   },
@@ -187,7 +187,7 @@ Output format must be valid JSON with this exact structure:
       "name": "part_name",
       "attributes": {
         "color": "color_value",
-        "material": "material_value",
+        
         "style": "style_value"
       },
       "relationship_to_main": "attached_to|part_of|component_of"
@@ -198,7 +198,7 @@ Output format must be valid JSON with this exact structure:
       "name": "env_element_name",
       "attributes": {
         "color": "color_value",
-        "material": "material_value",
+        
         "style": "style_value"
       }
     }
@@ -215,7 +215,7 @@ Rules:
 - If an attribute is not mentioned, use empty strings
 - Use consistent naming (lowercase with underscores)
 - Colors should be specific when mentioned
-- Materials should be extracted when mentioned (wood, metal, fabric, etc.)
+ 
 - The main object is typically the first noun phrase in the description
 
 Please provide only the JSON response without additional text or explanations."""
@@ -337,7 +337,7 @@ Please provide only the JSON response without additional text or explanations.""
                     'name': scene_graph_msg.main_object.name,
                     'attributes': {
                         'color': scene_graph_msg.main_object.attributes.color,
-                        'material': scene_graph_msg.main_object.attributes.material,
+                        # 'material' removed from ObjectAttribute
                         'style': scene_graph_msg.main_object.attributes.style
                     }
                 },
@@ -356,7 +356,7 @@ Please provide only the JSON response without additional text or explanations.""
                     'relationship_to_main': part.relationship_to_main,
                     'attributes': {
                         'color': part.attributes.color,
-                        'material': part.attributes.material,
+                        # 'material': part.attributes.material,
                         'style': part.attributes.style
                     }
                 }
@@ -369,7 +369,7 @@ Please provide only the JSON response without additional text or explanations.""
                     'name': env.name,
                     'attributes': {
                         'color': env.attributes.color,
-                        'material': env.attributes.material,
+                        # 'material': env.attributes.material,
                         'style': env.attributes.style
                     }
                 }
@@ -454,7 +454,7 @@ Please provide only the JSON response without additional text or explanations.""
                             attrs = main_obj['attributes']
                             f.write("  Attributes:\n")
                             f.write(f"    Color: {attrs.get('color', 'N/A')}\n")
-                            f.write(f"    Material: {attrs.get('material', 'N/A')}\n")
+                            # Material removed
                             f.write(f"    Style: {attrs.get('style', 'N/A')}\n")
                         f.write("\n")
                     
@@ -468,7 +468,7 @@ Please provide only the JSON response without additional text or explanations.""
                             if 'attributes' in part:
                                 attrs = part['attributes']
                                 f.write(f"    Color: {attrs.get('color', 'N/A')}\n")
-                                f.write(f"    Material: {attrs.get('material', 'N/A')}\n")
+                                # Material removed
                                 f.write(f"    Style: {attrs.get('style', 'N/A')}\n")
                             f.write("\n")
                     
@@ -482,7 +482,7 @@ Please provide only the JSON response without additional text or explanations.""
                             if 'attributes' in env:
                                 attrs = env['attributes']
                                 f.write(f"    Color: {attrs.get('color', 'N/A')}\n")
-                                f.write(f"    Material: {attrs.get('material', 'N/A')}\n")
+                                # Material removed
                                 f.write(f"    Style: {attrs.get('style', 'N/A')}\n")
                             f.write("\n")
                     
@@ -561,7 +561,7 @@ Please provide only the JSON response without additional text or explanations.""
             if 'attributes' in main_obj:
                 attrs = main_obj['attributes']
                 msg.main_object.attributes.color = attrs.get('color', '')
-                msg.main_object.attributes.material = attrs.get('material', '')
+                # Material removed from ObjectAttribute message
                 msg.main_object.attributes.style = attrs.get('style', '')
         
         # Parts
@@ -574,7 +574,7 @@ Please provide only the JSON response without additional text or explanations.""
                 if 'attributes' in part_data:
                     attrs = part_data['attributes']
                     part.attributes.color = attrs.get('color', '')
-                    part.attributes.material = attrs.get('material', '')
+                    # material removed
                     part.attributes.style = attrs.get('style', '')
                 
                 msg.parts.append(part)
@@ -589,7 +589,7 @@ Please provide only the JSON response without additional text or explanations.""
                 if 'attributes' in env_data:
                     attrs = env_data['attributes']
                     env_obj.attributes.color = attrs.get('color', '')
-                    env_obj.attributes.material = attrs.get('material', '')
+                    # material removed
                     env_obj.attributes.style = attrs.get('style', '')
                 
                 msg.environment.append(env_obj)
@@ -720,7 +720,7 @@ Please provide only the JSON response without additional text or explanations.""
             if 'attributes' in main_obj:
                 attrs = main_obj['attributes']
                 msg.main_object.attributes.color = attrs.get('color', '')
-                msg.main_object.attributes.material = attrs.get('material', '')
+                # material removed
                 msg.main_object.attributes.style = attrs.get('style', '')
         
         # Parts
@@ -733,7 +733,7 @@ Please provide only the JSON response without additional text or explanations.""
                 if 'attributes' in part_data:
                     attrs = part_data['attributes']
                     part.attributes.color = attrs.get('color', '')
-                    part.attributes.material = attrs.get('material', '')
+                    # material removed
                     part.attributes.style = attrs.get('style', '')
                 
                 msg.parts.append(part)
@@ -748,7 +748,7 @@ Please provide only the JSON response without additional text or explanations.""
                 if 'attributes' in env_data:
                     attrs = env_data['attributes']
                     env_obj.attributes.color = attrs.get('color', '')
-                    env_obj.attributes.material = attrs.get('material', '')
+                    # material removed
                     env_obj.attributes.style = attrs.get('style', '')
                 
                 msg.environment.append(env_obj)

@@ -686,7 +686,7 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                     style = attr.split(':', 1)[1].strip()
             
             msg.main_object.attributes.color = color
-            msg.main_object.attributes.material = material
+            # material removed from ObjectAttribute
             msg.main_object.attributes.style = style
             
             # Parts - treat other detected objects as parts if they have relations to the main object
@@ -729,7 +729,7 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                             part_style = attr.split(':', 1)[1].strip()
                     
                     part.attributes.color = part_color
-                    part.attributes.material = part_material
+                    # material removed
                     part.attributes.style = part_style
                     
                     msg.parts.append(part)
@@ -755,7 +755,7 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                             env_style = attr.split(':', 1)[1].strip()
                     
                     env_obj.attributes.color = env_color
-                    env_obj.attributes.material = env_material
+                    # material removed
                     env_obj.attributes.style = env_style
                     
                     msg.environment.append(env_obj)

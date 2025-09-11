@@ -844,11 +844,10 @@ Required JSON format:
     {
       "bounding_box": [x_min, y_min, x_max, y_max],
       "label": "object_name",
-      "attributes": {
-        "color": "color_value",
-        "material": "material_value", 
-        "style": "style_value"
-      },
+            "attributes": {
+                "color": "color_value",
+                "style": "style_value"
+            },
       "relations": [
         {
           "type": "relation_type",
@@ -1013,7 +1012,7 @@ Detect all objects in the image and respond with the JSON:"""
             # Attributes for main object
             attributes = main_object_data.get('attributes', {})
             msg.main_object.attributes.color = attributes.get('color', '')
-            msg.main_object.attributes.material = attributes.get('material', '')
+            # material removed from ObjectAttribute
             msg.main_object.attributes.style = attributes.get('style', '')
             
             # Parts - treat other detected objects as parts if they have relations to the main object
@@ -1038,7 +1037,7 @@ Detect all objects in the image and respond with the JSON:"""
                     
                     part_attrs = obj_data.get('attributes', {})
                     part.attributes.color = part_attrs.get('color', '')
-                    part.attributes.material = part_attrs.get('material', '')
+                    # material removed
                     part.attributes.style = part_attrs.get('style', '')
                     
                     msg.parts.append(part)
@@ -1050,7 +1049,7 @@ Detect all objects in the image and respond with the JSON:"""
                     
                     env_attrs = obj_data.get('attributes', {})
                     env_obj.attributes.color = env_attrs.get('color', '')
-                    env_obj.attributes.material = env_attrs.get('material', '')
+                    # material removed
                     env_obj.attributes.style = env_attrs.get('style', '')
                     
                     msg.environment.append(env_obj)
