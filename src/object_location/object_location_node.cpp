@@ -403,11 +403,11 @@ void synchronized_callback(const sensor_msgs::ImageConstPtr& image,
         graph_object.name = detected_object.class_name;
         graph_object.bounding_box.push_back(bounding_box.first);
         graph_object.bounding_box.push_back(bounding_box.second);
-        graph_object.image_index = detected_object.image_index; //Igor
-        graph_object.description = detected_object.description; //Igor
+        //graph_object.image_index = detected_object.image_index; //Igor
+        //graph_object.description = detected_object.description; //Igor
 
         graph_objects.objects.push_back(graph_object);
-        std::cout << "Added graph object: " << graph_object.description.data << std::endl; //Igor
+        std::cout << "Added graph object: " << graph_object.name.data << std::endl; //Igor
 
         ++i;
     }

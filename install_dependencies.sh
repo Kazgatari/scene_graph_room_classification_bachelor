@@ -36,7 +36,9 @@ sudo apt-get install -y \
     ros-noetic-geometry-msgs \
     ros-noetic-sensor-msgs \
     ros-noetic-std-msgs \
-    ros-noetic-nav-msgs
+    ros-noetic-nav-msgs \
+    ros-noetic-libdlib \
+    ros-noetic-opengm
 
 # Install OpenCV
 echo "Installing OpenCV..."
@@ -55,7 +57,8 @@ pip3 install --user \
     scikit-learn \
     pandas \
     networkx \
-    shapely
+    shapely \
+
 
 # Commented out - only needed if using YOLO or advanced features:
 # torch==1.13.1 - PyTorch (needed by: YOLO models if used)
