@@ -46,16 +46,16 @@ sudo apt-get install -y \
 # Install Python dependencies
 echo "Installing Python dependencies..."
 pip3 install --user \
-    numpy==1.21.6 \
-    opencv-python==4.8.1.78 \
-    requests==2.28.2 \
-    google-generativeai==0.3.2 \
-    Pillow==9.5.0 \
-    scipy==1.9.3 \
-    scikit-learn==1.1.3 \
-    pandas==1.5.3 \
-    networkx==2.8.8 \
-    shapely==1.8.5
+    numpy \
+    opencv-python \
+    requests \
+    google-generativeai \
+    Pillow \
+    scipy \
+    scikit-learn \
+    pandas \
+    networkx \
+    shapely
 
 # Commented out - only needed if using YOLO or advanced features:
 # torch==1.13.1 - PyTorch (needed by: YOLO models if used)
