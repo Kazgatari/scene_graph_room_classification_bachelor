@@ -13,7 +13,6 @@ from scene_graph.msg import ObjectSceneGraph, ObjectInfo, ObjectAttribute, Objec
 from std_msgs.msg import String
 import sys
 import os
-import google.generativeai as genai
 import time
 
 
@@ -150,7 +149,7 @@ Detect all objects in the image and respond with the JSON:"""
             }
             
             payload = {
-                "model": "qwen2-vl",  # Adjust model name as needed
+                "model": "OpenGVLab/InternVL3_5-4B-HF",  # Adjust model name as needed
                 "messages": [
                     {
                         "role": "user",
@@ -176,7 +175,7 @@ Detect all objects in the image and respond with the JSON:"""
                 f"{self.vlm_url}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=60
+                timeout=120
             )
             
             if response.status_code == 200:
@@ -193,6 +192,7 @@ Detect all objects in the image and respond with the JSON:"""
     
     def call_external_api(self, image_base64):
         """Call external API (Gemini 2.5 Flash Lite) with rate limiting"""
+        import google.generativeai as genai
         try:
             if not self.gemini_client:
                 rospy.logerr("Gemini client not initialized")

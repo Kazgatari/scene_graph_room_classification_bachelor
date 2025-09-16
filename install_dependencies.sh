@@ -38,7 +38,7 @@ sudo apt-get install -y \
     ros-noetic-std-msgs \
     ros-noetic-nav-msgs \
     ros-noetic-libdlib \
-    ros-noetic-opengm
+    ros-noetic-opengm \
     ros-noetic-pcl-conversions \
     ros-noetic-pcl-ros
 
