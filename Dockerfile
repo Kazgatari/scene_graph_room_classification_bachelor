@@ -34,12 +34,12 @@ RUN apt-get update && apt-get install -y \
     ros-noetic-tf2-geometry-msgs \
     ros-noetic-tf2-ros \
     # Computer vision libraries
-    libopencv-dev \
-    python3-opencv \
+    #libopencv-dev \
+    #python3-opencv \
     # Other utilities
-    vim \
+    #vim \
     nano \
-    htop \
+    #htop \
     && rm -rf /var/lib/apt/lists/*
 
 # Install Python dependencies
@@ -48,9 +48,9 @@ RUN pip3 install --no-cache-dir \
     numpy==1.21.6 \
     opencv-python==4.8.1.78 \
     # Computer vision and ML
-    torch==1.13.1 \
-    torchvision==0.14.1 \
-    ultralytics==8.0.196 \
+    #torch==1.13.1 \
+    #torchvision==0.14.1 \
+    #ultralytics==8.0.196 \
     # Graph processing
     networkx==2.8.8 \
     # Geometry processing
@@ -65,7 +65,7 @@ RUN pip3 install --no-cache-dir \
     scipy==1.9.3 \
     scikit-learn==1.1.3 \
     # Data handling
-    pandas==1.5.3
+    #pandas==1.5.3
 
 # Create catkin workspace
 RUN mkdir -p $CATKIN_WS/src
