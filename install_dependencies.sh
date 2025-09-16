@@ -36,12 +36,30 @@ sudo apt-get install -y \
     ros-noetic-geometry-msgs \
     ros-noetic-sensor-msgs \
     ros-noetic-std-msgs \
-    ros-noetic-nav-msgs
+    ros-noetic-nav-msgs \
+    ros-noetic-pcl-conversions \
+    ros-noetic-pcl-ros
 
 # Install OpenCV
 echo "Installing OpenCV..."
 sudo apt-get install -y \
     libopencv-dev
+
+# Install CGAL (Computational Geometry Algorithms Library)
+echo "Installing CGAL..."
+sudo apt-get install -y \
+    libcgal-dev \
+    libcgal-qt5-dev
+
+# Install PCL (Point Cloud Library)
+echo "Installing PCL..."
+sudo apt-get install -y \
+    libpcl-dev
+
+# Install Boost libraries
+echo "Installing Boost libraries..."
+sudo apt-get install -y \
+    libboost-all-dev
 
 # Install Python dependencies
 echo "Installing Python dependencies..."
