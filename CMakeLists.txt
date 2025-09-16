@@ -107,6 +107,8 @@ add_service_files(
   RegisterObject.srv
   QueryObjects.srv
   GetObjectInfo.srv
+  VLMInference.srv
+  
 )
 
 ## Generate actions in the 'action' folder

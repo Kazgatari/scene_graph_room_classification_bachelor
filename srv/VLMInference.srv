@@ -1,0 +1,8 @@
+# VLM Inference Service
+# Input: Image for object detection
+sensor_msgs/Image image
+---
+# Output: Array of detected objects as ObjectSceneGraph messages
+ObjectSceneGraph[] scene_graphs
+bool success
+string error_message

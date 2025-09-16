@@ -484,7 +484,7 @@ You are an advanced Multimodal AI tasked with analyzing an image to detect objec
 Bounding Box: The coordinates of the object in the format [x_min, y_min, x_max, y_max]. 
 Object Details: A compact JSON representation of the object, including: 
 label: The name of the object. 
-attributes: Key properties like color, material, and style. 
+attributes: Key properties like color and style. 
 relations: Relationships to other objects (e.g., "attached_to", "on", "in", "under", "part_of"). 
 Output Format: 
 {
@@ -493,7 +493,6 @@ Output Format:
       "label": "object_name", 
       "attributes": { 
         "color": "color_value", 
-        "material": "material_value", 
         "style": "style_value" }, 
       "relations": [ { 
         "type": "relation_type", 
@@ -672,7 +671,6 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
             # Attributes for main object
             attributes_list = main_object_data.get('attributes', [])
             color = ""
-            material = ""
             style = ""
             
             # Parse attributes from list format
@@ -680,8 +678,6 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                 attr_lower = attr.lower()
                 if 'color:' in attr_lower:
                     color = attr.split(':', 1)[1].strip()
-                elif 'material:' in attr_lower:
-                    material = attr.split(':', 1)[1].strip()
                 elif 'style:' in attr_lower:
                     style = attr.split(':', 1)[1].strip()
             
@@ -716,15 +712,12 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                     # Parse part attributes
                     part_attributes = obj_data.get('attributes', [])
                     part_color = ""
-                    part_material = ""
                     part_style = ""
                     
                     for attr in part_attributes:
                         attr_lower = attr.lower()
                         if 'color:' in attr_lower:
                             part_color = attr.split(':', 1)[1].strip()
-                        elif 'material:' in attr_lower:
-                            part_material = attr.split(':', 1)[1].strip()
                         elif 'style:' in attr_lower:
                             part_style = attr.split(':', 1)[1].strip()
                     
@@ -742,15 +735,12 @@ Task: Analyze the provided image and return the bounding boxes and JSON represen
                     # Parse environment object attributes
                     env_attributes = obj_data.get('attributes', [])
                     env_color = ""
-                    env_material = ""
                     env_style = ""
                     
                     for attr in env_attributes:
                         attr_lower = attr.lower()
                         if 'color:' in attr_lower:
                             env_color = attr.split(':', 1)[1].strip()
-                        elif 'material:' in attr_lower:
-                            env_material = attr.split(':', 1)[1].strip()
                         elif 'style:' in attr_lower:
                             env_style = attr.split(':', 1)[1].strip()
                     

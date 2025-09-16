@@ -292,7 +292,7 @@ class GraphManagementNode:
         line_marker.type = Marker.LINE_STRIP
         line_marker.action = Marker.ADD
         line_marker.scale.x = 0.08  # Thicker line for relationships
-        line_marker.lifetime = rospy.Duration(0.6)
+        line_marker.lifetime = rospy.Duration(0)  # Permanent marker
 
         # Color based on relationship type
         if "part" in relationship_desc.lower():
@@ -345,7 +345,7 @@ class GraphManagementNode:
         text_marker.id = marker_id
         text_marker.type = Marker.TEXT_VIEW_FACING
         text_marker.action = Marker.ADD
-        text_marker.lifetime = rospy.Duration(0.6)
+        text_marker.lifetime = rospy.Duration(0)  # Permanent marker
         text_marker.pose.position = Point32(mid_x, mid_y, mid_z)
         text_marker.scale.z = 0.3  # Smaller text for relationships
 

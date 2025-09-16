@@ -1,0 +1,23 @@
+version: '3.8'
+
+services:
+  scene_graph_pipeline:
+    build: .
+    container_name: scene_graph_container
+    network_mode: "host"  # For ROS communication
+    privileged: true
+    environment:
+      - DISPLAY=${DISPLAY}
+      - ROS_MASTER_URI=http://localhost:11311
+      - ROS_HOSTNAME=localhost
+    volumes:
+      # Mount source code for development
+      - .:/catkin_ws/src/scene_graph_room_classification_bachelor
+      # X11 forwarding for GUI applications (rviz)
+      - /tmp/.X11-unix:/tmp/.X11-unix:rw
+      # Mount models directory if needed
+      - ./models:/models
+    working_dir: /catkin_ws
+    command: bash
+    stdin_open: true
+    tty: true
