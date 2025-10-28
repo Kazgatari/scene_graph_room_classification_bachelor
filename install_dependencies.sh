@@ -26,12 +26,14 @@ echo "Installing ROS packages..."
 sudo apt-get install -y \
     ros-noetic-cv-bridge \
     ros-noetic-image-transport \
+    ros-noetic-image-geometry \
     ros-noetic-message-filters \
     ros-noetic-tf \
     ros-noetic-tf-conversions \
     ros-noetic-tf2 \
-    ros-noetic-tf2-geometry-msgs \
     ros-noetic-tf2-ros \
+    ros-noetic-tf2-geometry-msgs \
+    python3-tf2-geometry-msgs \
     ros-noetic-visualization-msgs \
     ros-noetic-geometry-msgs \
     ros-noetic-sensor-msgs \

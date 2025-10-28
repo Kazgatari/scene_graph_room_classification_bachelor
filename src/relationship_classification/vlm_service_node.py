@@ -22,9 +22,10 @@ class VLMServiceNode:
         
         # Get parameters
         self.backend = rospy.get_param('~backend', 'florence')  # florence, vLLM, external
-        self.api_key = rospy.get_param('~api_key', '')  # For external services
-        self.vlm_url = rospy.get_param('~vlm_url', 'http://localhost:8000/v1')  # vLLM server URL
+        self.api_key = rospy.get_param('~api_key', '')  # For external services (not needed for containerized Google API)
+        self.vlm_url = rospy.get_param('~vlm_url', 'http://localhost:8002/v1/chat/completions')  # vLLM server URL   /chat/completions
         self.florence_url = rospy.get_param('~florence_url', 'http://florence:8001')  # Florence server URL
+        self.external_url = rospy.get_param('~external_url', 'http://localhost:8002/v1')  # Google API container URL
         self.external_model = rospy.get_param('~external_model', 'gemini-2.5-flash-lite')  # External model name
         self.external_rate_limit = rospy.get_param('~external_rate_limit', 4.0)  # Rate limit for external API in seconds
         
@@ -43,17 +44,14 @@ class VLMServiceNode:
         # Initialize CV bridge for image conversion
         self.bridge = CvBridge()
         
-        # Initialize Gemini client if using external API
-        self.gemini_client = None
+        # Initialize external API client (containerized Google API)
+        self.external_client_ready = False
         self.last_external_request_time = 0.0  # Track last external API request time
         self.external_request_interval = self.external_rate_limit  # Use configurable rate limit
-        if self.backend == 'external' and self.api_key:
-            try:
-                genai.configure(api_key=self.api_key)
-                self.gemini_client = genai.GenerativeModel(self.external_model)
-                rospy.loginfo(f"Initialized Gemini client with model: {self.external_model}")
-            except Exception as e:
-                rospy.logerr(f"Failed to initialize Gemini client: {e}")
+        if self.backend == 'external':
+            # No API key needed - using containerized Google API
+            self.external_client_ready = True
+            rospy.loginfo(f"External API ready to use containerized Google API at: {self.external_url}")
         
         # Create service
         self.service = rospy.Service('vlm_inference', VLMInference, self.handle_vlm_inference)
@@ -142,14 +140,15 @@ Detect all objects in the image and respond with the JSON:"""
             return None
     
     def call_vllm_api(self, image_base64):
-        """Call vLLM API using OpenAI-compatible format"""
+        """Call vLLM API using vLLM-specific format for vision models"""
         try:
             headers = {
                 "Content-Type": "application/json"
             }
             
+            # vLLM-specific format for vision models - use string content with image data
             payload = {
-                "model": "OpenGVLab/InternVL3_5-4B-HF",  # Adjust model name as needed
+                "model": "OpenGVLab/InternVL3_5-4B-HF",
                 "messages": [
                     {
                         "role": "user",
@@ -175,7 +174,7 @@ Detect all objects in the image and respond with the JSON:"""
                 f"{self.vlm_url}/chat/completions",
                 headers=headers,
                 json=payload,
-                timeout=120
+                timeout=240  # Reduced timeout for efficiency
             )
             
             if response.status_code == 200:
@@ -191,14 +190,13 @@ Detect all objects in the image and respond with the JSON:"""
             return None
     
     def call_external_api(self, image_base64):
-        """Call external API (Gemini 2.5 Flash Lite) with rate limiting"""
-        import google.generativeai as genai
+        """Call external containerized Google API using OpenAI-compatible format"""
         try:
-            if not self.gemini_client:
-                rospy.logerr("Gemini client not initialized")
+            if not self.external_client_ready:
+                rospy.logerr("External API client not ready")
                 return None
             
-            # Rate limiting: ensure 4 seconds have passed since last request
+            # Rate limiting: ensure configured seconds have passed since last request
             import time
             current_time = time.time()
             time_since_last_request = current_time - self.last_external_request_time
@@ -211,31 +209,73 @@ Detect all objects in the image and respond with the JSON:"""
             # Update the last request time
             self.last_external_request_time = time.time()
             
-            # Convert base64 to bytes for Gemini
-            import io
-            from PIL import Image as PILImage
+            # Prepare OpenAI-compatible request for containerized Google API
+            headers = {
+                "Content-Type": "application/json"
+            }
             
-            # Decode base64 image
-            image_data = base64.b64decode(image_base64)
-            image = PILImage.open(io.BytesIO(image_data))
-            
-            # Create the prompt for Gemini
-            prompt = self.detection_prompt
+            # OpenAI-compatible format
+            payload = {
+                "model": self.external_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": self.detection_prompt
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{image_base64}"
+                                }
+                            }
+                        ]
+                    }
+                ],
+                "max_tokens": 2048,
+                "temperature": 0.7
+            }
 
-            # rospy.loginfo("Sending request to Gemini API...")
-
-            # Generate content using Gemini
-            response = self.gemini_client.generate_content([prompt, image])
             
-            if response and response.text:
-                # Parse the JSON response
-                return self.parse_json_response(response.text)
+            rospy.loginfo("Sending request to containerized Google API...")
+            
+            # Track request time
+            request_start_time = time.time()
+            
+            response = requests.post(
+                f"{self.external_url}/chat/completions",
+                headers=headers,
+                json=payload,
+                timeout=360  # Reasonable timeout for Google API
+            )
+            
+            # Calculate request duration
+            request_duration = time.time() - request_start_time
+            rospy.loginfo(f"External API request completed in {request_duration:.2f}s")
+            
+            if response.status_code == 200:
+                result = response.json()
+                content = result["choices"][0]["message"]["content"]
+                
+                # Log performance info if available
+                if "performance" in result:
+                    perf = result["performance"]
+                    rospy.loginfo(f"External API inference time: {perf.get('inference_time_seconds', 'N/A')}s")
+                    rospy.loginfo(content)
+                
+                return self.parse_json_response(content)
+            elif response.status_code == 429:
+                # Handle rate limiting from the container
+                rospy.logwarn("Rate limit exceeded on external API container")
+                return None
             else:
-                rospy.logerr("Empty response from Gemini API")
+                rospy.logerr(f"External API error: {response.status_code} - {response.text}")
                 return None
                 
         except Exception as e:
-            rospy.logerr(f"Error calling Gemini API: {e}")
+            rospy.logerr(f"Error calling external containerized API: {e}")
             return None
     
     def parse_json_response(self, response_text):
@@ -336,7 +376,7 @@ Detect all objects in the image and respond with the JSON:"""
             if not detection_result or "objects" not in detection_result:
                 return []
             
-            # Clean up old objects periodically
+            # Clean up old objects periodically TODO: why?
             self.cleanup_old_objects()
             
             scene_graphs = []
@@ -514,19 +554,18 @@ def main():
             sys.exit(1)
         
         if backend == 'external':
-            api_key = rospy.get_param('~api_key', '')
-            if not api_key:
-                rospy.logerr("api_key parameter is required for external backend")
-                sys.exit(1)
-                
-            # Verify Gemini dependencies
+            # No API key needed for containerized Google API
+            external_url = rospy.get_param('~external_url', 'http://localhost:8002/v1')
+            rospy.loginfo(f"Using containerized Google API at: {external_url}")
+            
+            # Test connection to containerized API
             try:
-                import google.generativeai as genai
-                from PIL import Image as PILImage
-            except ImportError as e:
-                rospy.logerr(f"Missing dependencies for Gemini API: {e}")
-                rospy.logerr("Please install: pip install google-generativeai pillow")
-                sys.exit(1)
+                import requests
+                test_response = requests.get(f"{external_url.rstrip('/v1')}/health", timeout=5)
+                if test_response.status_code != 200:
+                    rospy.logwarn(f"External API health check failed: {test_response.status_code}")
+            except Exception as e:
+                rospy.logwarn(f"Could not reach external API container: {e}")
         
         # Create and run the service node
         service_node = VLMServiceNode()

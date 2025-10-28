@@ -300,7 +300,7 @@ class GraphManagementNode:
             line_marker.color.r = 0.0
             line_marker.color.g = 0.4
             line_marker.color.b = 1.0
-        elif "nearby" in relationship_desc.lower() or "spatial" in relationship_desc.lower():
+        elif "on" in relationship_desc.lower() or "under" in relationship_desc.lower():
             # Green for spatial relationships
             line_marker.color.r = 0.0
             line_marker.color.g = 1.0

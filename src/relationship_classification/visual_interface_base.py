@@ -5,11 +5,14 @@ from sensor_msgs.msg import Image, PointCloud2, CameraInfo
 from nav_msgs.msg import Odometry
 import numpy as np
 import struct
-from geometry_msgs.msg import Point32
+from geometry_msgs.msg import Point32, PointStamped, TransformStamped
 from std_msgs.msg import String, Int32, Header
 from typing import List
 from scene_graph.srv import VLMInference, VLMInferenceRequest
 from scene_graph.msg import GraphObjects, GraphObject
+from image_geometry import PinholeCameraModel
+import tf2_ros
+import tf2_geometry_msgs
 
 
 class VisualInterfaceBase:
@@ -24,12 +27,27 @@ class VisualInterfaceBase:
 
         """ Add camera info subscriber for 3D coordinate calculation """
         self.camera_info_sub = rospy.Subscriber('/camera/color/camera_info', CameraInfo, self.camera_info_callback)
+        
+        # Initialize PinholeCameraModel for robust coordinate conversion
+        self.camera_model = PinholeCameraModel()
         self.camera_info = None
-        # Default camera intrinsics (will be updated from camera_info)
+        
+        # Legacy camera intrinsics (for backward compatibility, but prefer camera_model)
         self.fx = 615.0  # focal length x
         self.fy = 615.0  # focal length y
         self.cx = 320.0  # principal point x
         self.cy = 240.0  # principal point y
+        
+        # Initialize TF2 for robust coordinate transformations
+        # Use large buffer to handle VLM processing delays (up to 60 seconds)
+        self.tf_buffer = tf2_ros.Buffer(rospy.Duration(60.0))  # 60 second buffer for slow VLM inference
+        self.tf_listener = tf2_ros.TransformListener(self.tf_buffer)
+        
+        # Frame names - adjust these based on your robot's TF tree
+        self.camera_frame = 'camera_color_optical_frame'  # Orbbec Astra optical frame
+        self.world_frame = 'odom'  # or 'map' if using SLAM
+        
+        rospy.loginfo(f"TF2 initialized with 60s buffer: transforming from '{self.camera_frame}' to '{self.world_frame}'")
 
         # Publisher for GraphObjects
         self.graph_objects_pub = rospy.Publisher('/scene_graph/seen_graph_objects', GraphObjects, queue_size=10)
@@ -56,12 +74,23 @@ class VisualInterfaceBase:
 
     
     def camera_info_callback(self, msg):
-        """Store camera intrinsics for 3D coordinate calculation"""
+        """Store camera intrinsics and initialize camera model for 3D coordinate calculation"""
         self.camera_info = msg
+        
+        # Initialize the PinholeCameraModel with camera info
+        self.camera_model.fromCameraInfo(msg)
+        
+        # Update legacy intrinsics for backward compatibility
         self.fx = msg.K[0]  
         self.fy = msg.K[4]  
         self.cx = msg.K[2]  
-        self.cy = msg.K[5] 
+        self.cy = msg.K[5]
+        
+        rospy.loginfo_once("Camera model initialized from camera_info")
+    
+    def is_camera_model_ready(self):
+        """Check if camera model has been initialized"""
+        return self.camera_info is not None 
 
     def sample_depth_in_bbox(self, bbox, depth_msg):
         """Sample depth values within bounding box from point cloud"""
@@ -112,19 +141,97 @@ class VisualInterfaceBase:
             return [2.0]  # Default depth
     
     def pixel_to_camera_coords(self, pixel_x, pixel_y, depth):
-        """Convert pixel coordinates + depth to 3D camera coordinates"""
-        # Convert from image coordinates to camera coordinates
-        camera_x = (pixel_x - self.cx) * depth / self.fx
-        camera_y = (pixel_y - self.cy) * depth / self.fy
-        camera_z = depth
+        """Convert pixel coordinates + depth to 3D camera coordinates using image_geometry"""
+        if self.camera_info is None:
+            rospy.logwarn_once("Camera info not yet received, using default intrinsics")
+            # Fallback to manual calculation if camera info not available
+            camera_x = (pixel_x - self.cx) * depth / self.fx
+            camera_y = (pixel_y - self.cy) * depth / self.fy
+            camera_z = depth
+            return np.array([camera_x, camera_y, camera_z])
+        
+        # Use image_geometry's PinholeCameraModel for robust conversion
+        # This handles distortion and provides more accurate results
+        
+        # projectPixelTo3dRay returns a unit vector in the direction of the pixel
+        ray = self.camera_model.projectPixelTo3dRay((pixel_x, pixel_y))
+        
+        # Scale the ray by depth to get the 3D point
+        # The ray is already in camera coordinates
+        camera_x = ray[0] * depth
+        camera_y = ray[1] * depth
+        camera_z = ray[2] * depth
         
         return np.array([camera_x, camera_y, camera_z])
     
-    def transform_to_world_coords(self, camera_point, odom_msg=None):
-        """Transform point from camera frame to world frame using odometry"""
+    def transform_to_world_coords(self, camera_point, timestamp=None):
+        """Transform point from camera frame to world frame using TF2
+        
+        Args:
+            camera_point: 3D point in camera frame [x, y, z]
+            timestamp: Image timestamp. Uses the robot pose at this exact time for accurate positioning.
+        
+        Returns:
+            3D point in world frame [x, y, z]
+        """
+        try:
+            # Create PointStamped in camera frame
+            point_camera = PointStamped()
+            point_camera.header.frame_id = self.camera_frame
+            
+            # Use the provided timestamp to get the EXACT robot pose when image was captured
+            # TF2 buffer stores historical transforms, so we can look up old poses
+            if timestamp is not None:
+                point_camera.header.stamp = timestamp
+            else:
+                # Fallback to latest if no timestamp provided
+                point_camera.header.stamp = rospy.Time(0)
+                rospy.logwarn_once("No timestamp provided, using latest transform (may be inaccurate)")
+            
+            point_camera.point.x = float(camera_point[0])
+            point_camera.point.y = float(camera_point[1])
+            point_camera.point.z = float(camera_point[2])
+            
+            # Transform to world frame using TF2
+            # This automatically handles all transformations: camera -> base_link -> odom/map
+            try:
+                # Wait for transform to be available (timeout 2.0 seconds for historical lookup)
+                point_world = self.tf_buffer.transform(
+                    point_camera, 
+                    self.world_frame, 
+                    timeout=rospy.Duration(2.0)
+                )
+                
+                return np.array([
+                    point_world.point.x,
+                    point_world.point.y,
+                    point_world.point.z
+                ])
+                
+            except tf2_ros.ExtrapolationException as e:
+                # Transform too old - not in buffer anymore
+                rospy.logwarn_throttle(5.0, f"TF timestamp too old (>60s ago): {e}. Using latest transform.")
+                # Retry with latest transform as fallback
+                point_camera.header.stamp = rospy.Time(0)
+                try:
+                    point_world = self.tf_buffer.transform(point_camera, self.world_frame, timeout=rospy.Duration(1.0))
+                    return np.array([point_world.point.x, point_world.point.y, point_world.point.z])
+                except Exception as e2:
+                    rospy.logwarn(f"Fallback transform also failed: {e2}. Using camera coordinates.")
+                    return camera_point
+                    
+            except (tf2_ros.LookupException, tf2_ros.ConnectivityException) as e:
+                rospy.logwarn_throttle(5.0, f"TF transform failed: {e}. Using camera coordinates.")
+                return camera_point
+            
+        except Exception as e:
+            rospy.logwarn(f"Coordinate transform failed: {e}, using camera coordinates")
+            return camera_point
+    
+    def transform_to_world_coords_legacy(self, camera_point, odom_msg=None):
+        """Legacy manual transformation (kept for reference, use transform_to_world_coords instead)"""
         try:
             if odom_msg is None:
-                # No odometry available, return camera coordinates
                 rospy.logwarn_once("No odometry data available, using camera coordinates")
                 return camera_point
             
@@ -139,22 +246,18 @@ class VisualInterfaceBase:
             qz = odom_msg.pose.pose.orientation.z
             qw = odom_msg.pose.pose.orientation.w
             
-            # Convert quaternion to rotation matrix (simplified for yaw rotation)
-            # For a more complete solution, you'd use full 3D rotation
+            # Convert quaternion to yaw (simplified 2D rotation)
             yaw = np.arctan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
             
-            # Simple 2D transformation (assumes camera points forward)
-            # Rotate camera coordinates by robot yaw
             cos_yaw = np.cos(yaw)
             sin_yaw = np.sin(yaw)
             
-            # Transform from camera frame to robot frame (assuming camera faces forward)
-            # Camera X -> forward, Camera Y -> left, Camera Z -> up
-            robot_relative_x = camera_point[2]  # Camera Z becomes robot X (forward)
-            robot_relative_y = -camera_point[0]  # Camera -X becomes robot Y (left)
-            robot_relative_z = -camera_point[1]  # Camera -Y becomes robot Z (up)
+            # Transform from camera frame to robot frame (assumes camera faces forward)
+            robot_relative_x = camera_point[2]
+            robot_relative_y = -camera_point[0]
+            robot_relative_z = -camera_point[1]
             
-            # Rotate by robot orientation and translate by robot position
+            # Rotate and translate
             world_x = robot_x + (robot_relative_x * cos_yaw - robot_relative_y * sin_yaw)
             world_y = robot_y + (robot_relative_x * sin_yaw + robot_relative_y * cos_yaw)
             world_z = robot_z + robot_relative_z
@@ -162,10 +265,10 @@ class VisualInterfaceBase:
             return np.array([world_x, world_y, world_z])
             
         except Exception as e:
-            rospy.logwarn(f"Coordinate transform failed: {e}, using camera coordinates")
+            rospy.logwarn(f"Legacy coordinate transform failed: {e}")
             return camera_point
     
-    def calculate_3d_world_position(self, bbox, depth_msg, odom_msg=None):
+    def calculate_3d_world_position(self, bbox, depth_msg, timestamp=None): # odom_msg=None):
         """Calculate 3D world position from 2D bounding box and depth data"""
         x1, y1, x2, y2 = bbox
         
@@ -179,12 +282,12 @@ class VisualInterfaceBase:
         # Use median depth for robustness
         estimated_depth = np.median(depth_samples)
         
-        # Convert to 3D camera coordinates
+        # Convert to 3D camera coordinates using image_geometry
         camera_point = self.pixel_to_camera_coords(center_x, center_y, estimated_depth)
         
-        # Transform to world coordinates using odometry
-        world_point = self.transform_to_world_coords(camera_point, odom_msg)
-        
+        # Transform to world coordinates using TF2
+        world_point = self.transform_to_world_coords(camera_point, timestamp)
+        #world_point = self.transform_to_world_coords_legacy(camera_point, odom_msg)  # Legacy method for reference
         return world_point
 
     def create_3d_bounding_box(self, position: np.ndarray, size: np.ndarray) -> List[Point32]:
@@ -235,10 +338,23 @@ class VisualInterfaceBase:
         width_pixels = max(width_pixels, 5.0)
         height_pixels = max(height_pixels, 5.0)
         
-        # Convert pixel dimensions to real-world dimensions using depth
-        # Real world size = (pixel size * depth) / focal length
-        width_real = (width_pixels * depth) / self.fx
-        height_real = (height_pixels * depth) / self.fy
+        if self.camera_info is None:
+            # Fallback to manual calculation if camera info not available
+            width_real = (width_pixels * depth) / self.fx
+            height_real = (height_pixels * depth) / self.fy
+        else:
+            # Use image_geometry for more accurate size estimation
+            # Get 3D rays for bbox corners
+            top_left_ray = self.camera_model.projectPixelTo3dRay((x1, y1))
+            bottom_right_ray = self.camera_model.projectPixelTo3dRay((x2, y2))
+            
+            # Scale rays by depth
+            top_left_3d = np.array(top_left_ray) * depth
+            bottom_right_3d = np.array(bottom_right_ray) * depth
+            
+            # Calculate real-world dimensions
+            width_real = abs(bottom_right_3d[0] - top_left_3d[0])
+            height_real = abs(bottom_right_3d[1] - top_left_3d[1])
         
         # Estimate depth dimension using object-specific heuristics
         # For most objects, assume roughly cubic proportions but with some variation
@@ -316,8 +432,13 @@ class VisualInterfaceBase:
                         
                         pixel_bbox = [x1, y1, x2, y2]
                         
-                        # Calculate 3D world position
-                        world_position = self.calculate_3d_world_position(pixel_bbox, depth_msg, odom_msg)
+                        # Calculate 3D world position using TF2
+                        world_position = self.calculate_3d_world_position(
+                            pixel_bbox, 
+                            depth_msg, 
+                            timestamp=image_msg.header.stamp
+                        )
+                        #world_position = self.transform_to_world_coords_legacy(pixel_bbox, odom_msg) Legacy
                         
                         # Calculate depth for size estimation
                         depth_samples = self.sample_depth_in_bbox(pixel_bbox, depth_msg)
