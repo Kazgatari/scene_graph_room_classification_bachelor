@@ -60,6 +60,8 @@ class VLMServiceNode:
         self.relationships_pub = rospy.Publisher('/scene_graph/object_relationships', String, queue_size=10)
         
         # Define the detection prompt
+        #- Unique object detection is required (dont repeat objects with identical bounding boxes)
+        #- Maximum 10 unique objects can be detected
         self.detection_prompt = """Analyze this image and detect all objects. You must respond with ONLY valid JSON in the exact format below, with no additional text, explanations, or markdown formatting.
 
 CRITICAL: Your response must be valid JSON that can be parsed. Do not include any text before or after the JSON. Do not use "..." or truncate any values.
@@ -85,12 +87,10 @@ Required JSON format:
 }
 
 Rules:
-- Unique object detection is required (dont repeat objects with identical bounding boxes)
-- Maximum 10 unique objects can be detected
 - Bounding box coordinates are percentile values from 0 to 999 (0 = top/left, 999 = bottom/right)
 - Use complete attribute values, never "..." or truncation
 - Include empty string "" for unknown attributes
-- Relations describe spatial relationships: "on", "under", "attached_to", "in"
+- Relations describe spatial relationships like: "on", "under", "attached_to", "in", "at"
 - Response must be parseable JSON only
 
 Detect all objects in the image and respond with the JSON:"""
@@ -196,7 +196,7 @@ Detect all objects in the image and respond with the JSON:"""
                 rospy.logerr("External API client not ready")
                 return None
             
-            # Rate limiting: ensure configured seconds have passed since last request
+            # Rate limiting: ensure configured seconds have passed since last request   TODO:change for other implementations
             import time
             current_time = time.time()
             time_since_last_request = current_time - self.last_external_request_time

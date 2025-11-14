@@ -1,0 +1,22 @@
+<launch>
+    <!-- VLM Service Node with external backend -->
+    <node pkg="scene_graph" name="vlm_service_node" type="vlm_service_node.py" output="screen">
+        <param name="backend" value="external" />
+        <param name="external_url" value="http://localhost:8002/v1" />
+    </node>
+
+    <!-- Visual Interface Base Node -->
+    <node pkg="scene_graph" name="visual_interface_base" type="visual_interface_base.py" output="screen" />
+
+    <!-- Graph Management Node -->
+    <node pkg="scene_graph" name="graph_management_node" type="graph_management_node.py" output="screen" />
+
+    <!-- RViz Visualization -->
+    <node pkg="rviz" name="rviz" type="rviz" output="screen" />
+
+    <!-- Room Segmentation Server -->
+    <node pkg="ipa_room_segmentation" name="room_segmentation_server" type="room_segmentation_server" output="screen" />
+
+    <!-- Room Segmentation Client Graph -->
+    <node pkg="ipa_room_segmentation" name="room_segmentation_client_graph" type="room_segmentation_client_graph" output="screen" />
+</launch>
